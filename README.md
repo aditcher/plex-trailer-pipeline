@@ -1,137 +1,93 @@
-# 🎬 Plex Trailer Pipeline
+# Plex Trailer Pipeline
 
-A streamlined shell-based workflow for downloading YouTube trailers in 4K and automatically converting them to a format that plays perfectly on Plex with Direct Play — no transcoding, no buffering, no hesitation.
+A simple shell-based workflow for macOS that downloads YouTube videos and trailers and converts them to a format that Plex can play directly — no buffering, no stuttering.
 
----
+## The Problem
 
-## 🖥️ Environment
+YouTube serves video using the **VP9** (or AV1) codec. While great for web streaming, VP9 is not natively supported for Direct Play by many Plex clients — including Samsung smart TVs. When Plex encounters a VP9 file, it falls back to **transcoding** on the fly. On low-power NAS hardware like the Synology DS423+ (Intel Celeron J4125), real-time 4K transcoding is simply too much, resulting in constant stuttering and buffering even on a gigabit local network.
 
-| Component | Details |
-|---|---|
-| **Server** | Apple Mac Pro 7,1 (2019) — 16-Core Intel Xeon W, 96GB RAM |
-| **NAS** | Synology DS423+ — 4×12TB WD Red Plus (SHR), 32.7TB |
-| **Media Server** | Plex Media Server |
-| **TV Client** | Samsung 85" QN90BD Neo QLED 4K (2022) |
-| **Network** | Tachus 1Gbps Symmetrical |
-| **OS** | macOS Tahoe |
+## The Solution
 
----
+Download the video from YouTube using **yt-dlp**, then immediately re-encode the video track from VP9 to **H.264** using **ffmpeg**, keeping the file in an **MKV container**. Plex can Direct Play H.264/MKV natively on virtually every client device, including Samsung TVs, with zero transcoding overhead.
 
-## 🔧 The Problem
+The `ytdl` shell function handles this automatically in one command. Before running it, find the highest resolution version of the video on YouTube — if a 4K version exists, find it and copy that URL. `ytdl` will always download the best quality stream available at that URL, so starting with the best source gives you the best result.
 
-YouTube serves 4K video in **VP9** or **AV1** codec formats. While these are efficient for web streaming, Samsung smart TVs and many Plex clients cannot **Direct Play** these codecs natively. This forces the Plex server (in this case a Synology NAS with a low-power Intel Celeron J4125) to **transcode** the stream in real time — which it cannot handle at 4K resolution, resulting in constant stuttering and buffering.
+## Requirements
 
----
+- macOS (zsh)
+- [Homebrew](https://brew.sh)
+- yt-dlp
+- ffmpeg
 
-## ✅ The Solution
-
-A single shell function (`ytdl`) that:
-
-1. Downloads the best available quality stream from YouTube (4K if available)
-2. Automatically re-encodes it to **H.264 + AAC inside a `.mov` container** using `ffmpeg`
-3. Delivers a file that Plex can **Direct Play** natively on Samsung TVs — zero transcoding, zero stutter
-
----
-
-## 📦 Dependencies
-
-Install via [Homebrew](https://brew.sh):
+Install dependencies:
 
 ```bash
-brew install yt-dlp ffmpeg coreutils
+brew install yt-dlp ffmpeg
 ```
 
----
+## Setup
 
-## 🚀 Setup
-
-Add the following functions to your `~/.zprofile`:
+Run the setup script to add the `ytdl` function to your `~/.zprofile`:
 
 ```bash
-# Download best available quality (4K if offered) and convert to Plex-compatible MOV
-ytdl() {
-  cd ~/Movies
-  yt-dlp --cookies-from-browser firefox -f "bestvideo+bestaudio" --merge-output-format mkv -o "%(title)s_temp.mkv" "$1"
-  local latest=$(ls -t ~/Movies/*_temp.mkv | head -1)
-  local output="${latest/_temp.mkv/.mov}"
-  ffmpeg -y -nostdin -stats -loglevel error -i "$latest" -c:v libx264 -crf 18 -preset fast -pix_fmt yuv420p -c:a aac -b:a 192k "$output"
-  rm "$latest"
-  echo "Done: $output"
-}
-
-# Download at exactly 1440p 60fps
-ytdl1440() {
-  cd ~/Movies && yt-dlp -f "bv*[height=1440][fps>=60]+ba/b[height=1440]" --merge-output-format mkv "$1"
-}
-
-# Download capped at 1080p
-ytdl1080() {
-  cd ~/Movies && yt-dlp -f "bv*[height<=1080]+ba/b[height<=1080]" --merge-output-format mkv "$1"
-}
+chmod +x ytdl_setup.sh
+./ytdl_setup.sh
 ```
 
-Then reload your profile:
+Or manually add the contents of `ytdl_setup.sh` to your `~/.zprofile` and run `source ~/.zprofile`.
+
+## Usage
+
+1. On YouTube, find the video you want — look for the **4K or highest resolution version** available
+2. Copy the URL from your browser
+3. Open **Terminal** and paste the command with your URL in quotes:
 
 ```bash
-source ~/.zprofile
+ytdl "https://www.youtube.com/watch?v=76b5nfuGpG4"
 ```
 
----
+The script will download the highest quality stream available and re-encode it to H.264 automatically. Output is saved to `~/Movies` as an MKV file, ready to move to your Plex library.
 
-## 🎯 Usage
+## Batch Convert Existing Files
 
-```bash
-ytdl "https://www.youtube.com/watch?v=XXXXXXXXXXX"
-```
-
-The downloaded `.mov` file will appear in `~/Movies`, ready to move to your Plex library.
-
-### Plex Folder Structure
-
-```
-/Movies
-  /Movie Name (Year)
-    /Trailers
-      Trailer.mov
-```
-
----
-
-## 🔄 Batch Conversion
-
-If you have existing `.mkv` trailer files that need converting to Plex-compatible format, use the included `batch_convert.sh` script:
+If you already have VP9/AV1 MKV trailers in your Plex library that were downloaded before this fix, use the batch converter to re-encode them all at once:
 
 ```bash
 chmod +x batch_convert.sh
-./batch_convert.sh
+./batch_convert.sh /Volumes/Movies
 ```
 
-This will:
-- Recursively find all `.mkv` files inside `Trailers/` subfolders
-- Re-encode each one to H.264 MOV using `libx264`
-- Delete the original MKV after successful conversion
-- Skip any file that fails or times out (10 minute timeout per file)
-- Show clear progress for each file
+This recursively finds all `.mkv` files inside `Trailers/` subfolders on your NAS and re-encodes them to H.264 in place. Original files are deleted after successful conversion.
 
----
+## Plex Folder Structure
 
-## 💡 Why H.264 + MOV?
+For Plex to recognize local trailers, place them in a `Trailers/` subfolder next to the movie:
 
-| Codec | Samsung TV Direct Play | DS423+ Transcode |
-|---|---|---|
-| VP9 (YouTube 4K) | ❌ No | ❌ Too slow |
-| AV1 (YouTube 4K) | ❌ No | ❌ Too slow |
-| H.265/HEVC | ⚠️ Sometimes | ❌ Too slow |
-| **H.264 (this pipeline)** | ✅ **Always** | ✅ **Not needed** |
+```
+/Movies/
+  Blade Runner 2049/
+    Blade Runner 2049.mkv
+    Trailers/
+      Blade Runner 2049 - Official Trailer.mkv
+```
 
-H.264 inside a `.mov` container is universally supported by Samsung Tizen Plex app and requires zero server-side processing — the NAS simply serves the file.
+For TV shows (requires Plex Pass), place trailers at the show root level:
 
----
+```
+/TV Shows/
+  The Mandalorian/
+    Trailers/
+      The Mandalorian - Season 1 Trailer.mkv
+    Season 01/
+      ...
+```
 
-## 👤 Author
+## Notes
 
-**Aaron Ditcher**
-Senior Data & SEO Manager | Home Lab Enthusiast
-- 13+ years experience in data analytics, BI, SQL, and ETL development
-- Home media stack: Plex, Synology NAS, Docker, AdGuard Home, Tailscale
-- GitHub: [@aditcher](https://github.com/aditcher)
+- The `ytdl` function always downloads the **highest resolution stream available** at the URL you provide — 4K, 1440p, 1080p, whatever YouTube offers. For the best result, find the highest quality version of the video on YouTube before copying the URL. If a 4K version exists, use that link. The video track is then re-encoded to H.264 and the audio to AAC at 192k.
+- Encoding is done using `libx264` (software) with CRF 18 for high quality. On a Mac Pro with Apple Silicon or a fast Intel CPU this is quick; on older hardware larger files may take a few minutes.
+- The `ytdl1080` and `ytdl1440` variants download raw MKV without re-encoding, useful when you want the original stream for non-Plex use.
+
+## Author
+
+Aaron Ditcher — [github.com/aditcher](https://github.com/aditcher)
