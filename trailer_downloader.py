@@ -21,6 +21,18 @@ import sys
 import re
 from pathlib import Path
 
+# ── Platform detection ─────────────────────────────────────────────────────────
+_IS_WIN  = sys.platform == 'win32'
+_IS_MAC  = sys.platform == 'darwin'
+
+FONT_MONO = "Courier New" if _IS_WIN else "Menlo"
+FONT_SANS = "Segoe UI"    if _IS_WIN else ".AppleSystemUIFont"
+
+# Windows: prevent subprocess calls from flashing a black console window
+_SUBPROCESS_FLAGS = {}
+if _IS_WIN:
+    _SUBPROCESS_FLAGS['creationflags'] = subprocess.CREATE_NO_WINDOW
+
 # ── Persistent settings ───────────────────────────────────────────────────────
 SETTINGS_FILE = Path.home() / ".trailer_downloader_settings.json"
 
@@ -65,30 +77,60 @@ BLUE_BTN    = "#0a7aff"
 
 # ── Dependency check ───────────────────────────────────────────────────────────
 def _find_tool(name):
-    """Find a tool by name, checking PATH and common install locations."""
+    """Find a tool by name, checking PyInstaller bundle, PATH, and common install locations."""
+
+    # 1. PyInstaller frozen bundle — bundled binaries live in sys._MEIPASS
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        exe_name = name + ('.exe' if _IS_WIN else '')
+        bundled  = os.path.join(sys._MEIPASS, exe_name)
+        if os.path.exists(bundled):
+            return bundled
+
+    # 2. Check PATH (works on both platforms)
     found = shutil.which(name)
     if found:
         return found
-    # macOS Homebrew fallback
-    mac_path = f"/usr/local/bin/{name}"
-    if os.path.exists(mac_path):
-        return mac_path
-    # Windows fallback
-    win_path = f"C:\\ProgramData\\chocolatey\\bin\\{name}.exe"
-    if os.path.exists(win_path):
-        return win_path
-    return name  # last resort — let it fail naturally
 
-YTDLP  = _find_tool("yt-dlp")
-FFMPEG = _find_tool("ffmpeg")
-FFPROBE = _find_tool("ffprobe")
+    # 3. macOS Homebrew fallbacks
+    if _IS_MAC:
+        for mac_path in (f"/usr/local/bin/{name}", f"/opt/homebrew/bin/{name}"):
+            if os.path.exists(mac_path):
+                return mac_path
+
+    # 4. Windows Chocolatey / Scoop fallbacks
+    if _IS_WIN:
+        userprofile = os.environ.get('USERPROFILE', '')
+        for win_path in (
+            fr"C:\ProgramData\chocolatey\bin\{name}.exe",
+            os.path.join(userprofile, 'scoop', 'shims', f"{name}.exe"),
+            fr"C:\Program Files\{name}\{name}.exe",
+        ):
+            if os.path.exists(win_path):
+                return win_path
+
+    return name  # last resort — let subprocess fail naturally
+
+def _tool_found(name):
+    """Return True if the tool is actually locatable (not just the bare name fallback)."""
+    path = _find_tool(name)
+    # _find_tool returns bare name when nothing was found; check absolute path or shutil.which
+    return path != name or bool(shutil.which(name))
 
 def check_deps():
     missing = []
-    for tool in ("yt-dlp", "ffmpeg"):
-        if not shutil.which(tool) and not os.path.exists(f"/usr/local/bin/{tool}"):
-            missing.append(tool)
+    for name in ("yt-dlp", "ffmpeg"):
+        if not _tool_found(name):
+            missing.append(name)
     return missing
+
+def _install_hint():
+    if _IS_WIN:
+        return "Install via winget:  winget install yt-dlp ffmpeg"
+    return "Install via Homebrew:  brew install yt-dlp ffmpeg"
+
+YTDLP   = _find_tool("yt-dlp")
+FFMPEG  = _find_tool("ffmpeg")
+FFPROBE = _find_tool("ffprobe")
 
 # ── Main app ───────────────────────────────────────────────────────────────────
 class _MacBtn(tk.Frame):
@@ -137,11 +179,11 @@ class TrailerDownloader(tk.Tk):
         self.minsize(660, 420)
         self.configure(bg=BG)
 
-        mono   = tkfont.Font(family="Menlo", size=11)
-        mono_s = tkfont.Font(family="Menlo", size=10)
-        sans   = tkfont.Font(family=".AppleSystemUIFont", size=12)
-        sans_s = tkfont.Font(family=".AppleSystemUIFont", size=10)
-        sans_xs= tkfont.Font(family=".AppleSystemUIFont", size=9)
+        mono   = tkfont.Font(family=FONT_MONO, size=11)
+        mono_s = tkfont.Font(family=FONT_MONO, size=10)
+        sans   = tkfont.Font(family=FONT_SANS, size=12)
+        sans_s = tkfont.Font(family=FONT_SANS, size=10)
+        sans_xs= tkfont.Font(family=FONT_SANS, size=9)
 
         self._mono   = mono
         self._mono_s = mono_s
@@ -261,7 +303,7 @@ class TrailerDownloader(tk.Tk):
         self._retry_btn = _MacBtn(
             bottom, text="↻  Retry",
             bg="#555555", fg="#ffffff",
-            font=tkfont.Font(family=".AppleSystemUIFont", size=13, weight="bold"),
+            font=tkfont.Font(family=FONT_SANS, size=13, weight="bold"),
             cursor="hand2", state="disabled",
             command=self._retry,
         )
@@ -269,7 +311,7 @@ class TrailerDownloader(tk.Tk):
         self._dl_btn = _MacBtn(
             bottom, text="⬇  Download",
             bg="#0a7aff", fg="#ffffff",
-            font=tkfont.Font(family=".AppleSystemUIFont", size=13, weight="bold"),
+            font=tkfont.Font(family=FONT_SANS, size=13, weight="bold"),
             cursor="hand2", state="normal",
             command=self._start_download,
         )
@@ -278,14 +320,14 @@ class TrailerDownloader(tk.Tk):
     def _section_label(self, text, pady_top=8):
         lbl = tk.Label(self, text=text.upper(),
                        bg=BG, fg=FG_LABEL,
-                       font=tkfont.Font(family=".AppleSystemUIFont", size=12, weight="bold"),
+                       font=tkfont.Font(family=FONT_SANS, size=12, weight="bold"),
                        anchor="w")
         lbl.pack(fill="x", padx=18, pady=(pady_top, 0))
 
     def _sublabel(self, text, color=FG_LABEL, pady_top=4):
         lbl = tk.Label(self, text=text,
                        bg=BG, fg=color,
-                       font=tkfont.Font(family=".AppleSystemUIFont", size=12, weight="bold"),
+                       font=tkfont.Font(family=FONT_SANS, size=12, weight="bold"),
                        anchor="w")
         lbl.pack(fill="x", padx=18, pady=(pady_top, 2))
 
@@ -373,7 +415,7 @@ class TrailerDownloader(tk.Tk):
             self._log_write(
                 f"[warn]    Missing tools: {', '.join(missing)}", "yellow")
             self._log_write(
-                "[warn]    Install via Homebrew:  brew install yt-dlp ffmpeg", "yellow")
+                f"[warn]    {_install_hint()}", "yellow")
         else:
             self._log_write("$ YouTube URL Downloader ready.", "dim")
             self._log_write("[check]   yt-dlp found  ✓", "green")
@@ -419,7 +461,7 @@ class TrailerDownloader(tk.Tk):
         if missing:
             self._log_clear()
             self._log_write(f"[error]   Cannot run — missing: {', '.join(missing)}", "red")
-            self._log_write("[hint]    brew install yt-dlp ffmpeg", "yellow")
+            self._log_write(f"[hint]    {_install_hint()}", "yellow")
             self._set_failed()
             return
 
@@ -440,14 +482,23 @@ class TrailerDownloader(tk.Tk):
 
     def _download_worker(self, url, local_dir):
         try:
-            # Pass full shell PATH so Node.js is findable for yt-dlp n-challenge
             import os as _os
             _env = _os.environ.copy()
-            _env["PATH"] = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:" + _env.get("PATH", "")
+            # On macOS, prepend Homebrew paths so yt-dlp can find Node for n-challenge
+            if _IS_MAC:
+                _env["PATH"] = (
+                    "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:"
+                    + _env.get("PATH", "")
+                )
+
             self._log_ui(f"$ ytdl \"{url[:60]}…\"", "dim")
             self._log_ui("[yt-dlp]  Fetching metadata…", "gray")
 
-            import datetime; temp_mkv = os.path.join(local_dir, f"_temp_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mkv")
+            import datetime
+            temp_mkv = os.path.join(
+                local_dir,
+                f"_temp_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mkv"
+            )
 
             ytdlp_cmd = [
                 YTDLP,
@@ -460,12 +511,18 @@ class TrailerDownloader(tk.Tk):
             ]
 
             self._log_ui("[yt-dlp]  Downloading…", "blue")
-            result = subprocess.run(ytdlp_cmd, capture_output=True, text=True, env=_env)
+            result = subprocess.run(
+                ytdlp_cmd, capture_output=True, text=True, env=_env,
+                **_SUBPROCESS_FLAGS
+            )
 
             if result.returncode != 0 and "firefox" in result.stderr.lower():
                 ytdlp_cmd_clean = [c for c in ytdlp_cmd
                                    if c not in ("--cookies-from-browser", "firefox")]
-                result = subprocess.run(ytdlp_cmd_clean, capture_output=True, text=True, env=_env)
+                result = subprocess.run(
+                    ytdlp_cmd_clean, capture_output=True, text=True, env=_env,
+                    **_SUBPROCESS_FLAGS
+                )
 
             if result.returncode != 0:
                 for line in result.stderr.strip().splitlines()[-4:]:
@@ -489,7 +546,8 @@ class TrailerDownloader(tk.Tk):
 
             probe_title = subprocess.run(
                 [YTDLP, "--get-title", "--no-playlist", url],
-                capture_output=True, text=True, env=_env
+                capture_output=True, text=True, env=_env,
+                **_SUBPROCESS_FLAGS
             )
             filename = probe_title.stdout.strip() or Path(temp_mkv).stem
             out_mkv  = os.path.join(local_dir, f"{filename}.mkv")
@@ -503,14 +561,15 @@ class TrailerDownloader(tk.Tk):
                  "-show_entries", "stream=codec_name",
                  "-of", "default=noprint_wrappers=1:nokey=1",
                  temp_mkv],
-                capture_output=True, text=True
+                capture_output=True, text=True,
+                **_SUBPROCESS_FLAGS
             )
-            codec = probe.stdout.strip().lower()
-            is_h264 = (codec == "h264")
-            enc_mkv = os.path.join(local_dir, f"{filename}_enc.mkv")
+            codec    = probe.stdout.strip().lower()
+            is_h264  = (codec == "h264")
+            enc_mkv  = os.path.join(local_dir, f"{filename}_enc.mkv")
 
             if is_h264:
-                self._log_ui(f"[ffprobe] Codec: H.264 ✓ — remuxing (fast, no re-encode)", "green")
+                self._log_ui("[ffprobe] Codec: H.264 ✓ — remuxing (fast, no re-encode)", "green")
                 self._ui_status("Remuxing…", FG_GREEN, FG_GREEN)
                 ffmpeg_cmd = [
                     FFMPEG, "-y",
@@ -536,8 +595,10 @@ class TrailerDownloader(tk.Tk):
                     enc_mkv,
                 ]
 
-
-            ff = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+            ff = subprocess.run(
+                ffmpeg_cmd, capture_output=True, text=True,
+                **_SUBPROCESS_FLAGS
+            )
 
             if ff.returncode != 0:
                 for line in ff.stderr.strip().splitlines()[-4:]:
@@ -552,7 +613,6 @@ class TrailerDownloader(tk.Tk):
             os.replace(enc_mkv, out_mkv)
 
             self._log_ui(f"[done]    {Path(out_mkv).name}  ✓", "green")
-
             self._log_ui("─" * 56, "dim")
             self._log_ui(f"[ready]   Saved to: {out_mkv}  ✓", "green")
 
