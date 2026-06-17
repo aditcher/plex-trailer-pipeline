@@ -1,30 +1,92 @@
 name: Build Windows EXE
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  release:
+    types: [published]        # Auto-runs when you publish a GitHub Release
+  workflow_dispatch:           # Also lets you trigger it manually from the Actions tab
 
 jobs:
   build-windows:
     runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Set up Python
+    steps:
+      # ── 1. Checkout ───────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Python ─────────────────────────────────────────────────────────────
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      # ── 3. PyInstaller ────────────────────────────────────────────────────────
+      - name: Install PyInstaller
         run: pip install pyinstaller
 
-      - name: Build EXE
+      # ── 4. Download yt-dlp.exe ────────────────────────────────────────────────
+      - name: Download yt-dlp for Windows
+        shell: pwsh
         run: |
-          pyinstaller --onefile --windowed --name "YouTube URL Downloader" trailer_downloader.py
+          Invoke-WebRequest `
+            -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" `
+            -OutFile "yt-dlp.exe"
+          Write-Host "yt-dlp.exe downloaded: $((Get-Item yt-dlp.exe).Length) bytes"
 
-      - name: Upload EXE artifact
+      # ── 5. Download ffmpeg + ffprobe (static Windows build) ───────────────────
+      - name: Download ffmpeg for Windows
+        shell: pwsh
+        run: |
+          Invoke-WebRequest `
+            -Uri "https://github.com/BtbN/ffmpeg-builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" `
+            -OutFile "ffmpeg.zip"
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg_extracted"
+          $ff  = Get-ChildItem -Recurse -Filter "ffmpeg.exe"  ffmpeg_extracted | Select-Object -First 1
+          $ffp = Get-ChildItem -Recurse -Filter "ffprobe.exe" ffmpeg_extracted | Select-Object -First 1
+          Copy-Item $ff.FullName  "ffmpeg.exe"
+          Copy-Item $ffp.FullName "ffprobe.exe"
+          Write-Host "ffmpeg.exe:  $((Get-Item ffmpeg.exe).Length) bytes"
+          Write-Host "ffprobe.exe: $((Get-Item ffprobe.exe).Length) bytes"
+
+      # ── 6. Build EXE ─────────────────────────────────────────────────────────
+      #   --onefile      → single self-contained EXE (no installer needed)
+      #   --windowed     → no console window on launch
+      #   --add-binary   → bundle yt-dlp.exe, ffmpeg.exe, ffprobe.exe inside EXE
+      - name: Build with PyInstaller
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --onefile `
+            --windowed `
+            --name "YouTubeURLDownloader" `
+            "--add-binary=yt-dlp.exe;." `
+            "--add-binary=ffmpeg.exe;." `
+            "--add-binary=ffprobe.exe;." `
+            trailer_downloader.py
+
+      # ── 7. Confirm output ─────────────────────────────────────────────────────
+      - name: Verify EXE exists
+        shell: pwsh
+        run: |
+          $exe = "dist\YouTubeURLDownloader.exe"
+          if (Test-Path $exe) {
+            Write-Host "Build succeeded: $((Get-Item $exe).Length) bytes"
+          } else {
+            Write-Error "EXE not found — build failed"
+            exit 1
+          }
+
+      # ── 8. Upload as workflow artifact (always available for manual runs) ─────
+      - name: Upload EXE as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: YouTube-URL-Downloader-Windows
-          path: dist/YouTube URL Downloader.exe
+          name: YouTubeURLDownloader-Windows
+          path: dist/YouTubeURLDownloader.exe
+          retention-days: 30
+
+      # ── 9. Attach to GitHub Release (only when triggered by a release event) ──
+      - name: Attach EXE to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/YouTubeURLDownloader.exe
