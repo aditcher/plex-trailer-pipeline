@@ -94,37 +94,32 @@ jobs:
         with:
           files: dist/YouTubeURLDownloader.exe
 
-  build-macos:
-    runs-on: macos-latest
 
+  build-macos-intel:
+    runs-on: macos-13
     steps:
       # ── 1. Checkout ───────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
-
       # ── 2. Python ─────────────────────────────────────────────────────────────
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       # ── 3. PyInstaller ────────────────────────────────────────────────────────
       - name: Install PyInstaller
         run: pip install pyinstaller
-
       # ── 4. Download yt-dlp ────────────────────────────────────────────────────
       - name: Download yt-dlp for macOS
         run: |
           curl -L "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o yt-dlp
           chmod +x yt-dlp
-
       # ── 5. Download ffmpeg + ffprobe ──────────────────────────────────────────
       - name: Download ffmpeg for macOS
         run: |
           brew install ffmpeg
           cp $(which ffmpeg) ffmpeg
           cp $(which ffprobe) ffprobe
-
       # ── 6. Build .app ─────────────────────────────────────────────────────────
       - name: Build with PyInstaller
         run: |
@@ -136,7 +131,6 @@ jobs:
             --add-binary "ffmpeg:." \
             --add-binary "ffprobe:." \
             trailer_downloader.py
-
       # ── 7. Package into DMG ───────────────────────────────────────────────────
       - name: Create DMG
         run: |
@@ -145,19 +139,76 @@ jobs:
           hdiutil create -volname "YouTubeURLDownloader" \
             -srcfolder dmg_contents \
             -ov -format UDZO \
-            "dist/YouTubeURLDownloader.dmg"
-
+            "dist/YouTubeURLDownloader-Intel.dmg"
       # ── 8. Upload as workflow artifact ────────────────────────────────────────
       - name: Upload DMG as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: YouTubeURLDownloader-macOS
-          path: dist/YouTubeURLDownloader.dmg
+          name: YouTubeURLDownloader-macOS-Intel
+          path: dist/YouTubeURLDownloader-Intel.dmg
           retention-days: 30
-
       # ── 9. Attach to GitHub Release ───────────────────────────────────────────
       - name: Attach DMG to GitHub Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/YouTubeURLDownloader.dmg
+          files: dist/YouTubeURLDownloader-Intel.dmg
+
+  build-macos-silicon:
+    runs-on: macos-latest
+    steps:
+      # ── 1. Checkout ───────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      # ── 2. Python ─────────────────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # ── 3. PyInstaller ────────────────────────────────────────────────────────
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+      # ── 4. Download yt-dlp ────────────────────────────────────────────────────
+      - name: Download yt-dlp for macOS
+        run: |
+          curl -L "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o yt-dlp
+          chmod +x yt-dlp
+      # ── 5. Download ffmpeg + ffprobe ──────────────────────────────────────────
+      - name: Download ffmpeg for macOS
+        run: |
+          brew install ffmpeg
+          cp $(which ffmpeg) ffmpeg
+          cp $(which ffprobe) ffprobe
+      # ── 6. Build .app ─────────────────────────────────────────────────────────
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller \
+            --onefile \
+            --windowed \
+            --name "YouTubeURLDownloader" \
+            --add-binary "yt-dlp:." \
+            --add-binary "ffmpeg:." \
+            --add-binary "ffprobe:." \
+            trailer_downloader.py
+      # ── 7. Package into DMG ───────────────────────────────────────────────────
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_contents
+          cp -r "dist/YouTubeURLDownloader.app" dmg_contents/
+          hdiutil create -volname "YouTubeURLDownloader" \
+            -srcfolder dmg_contents \
+            -ov -format UDZO \
+            "dist/YouTubeURLDownloader-AppleSilicon.dmg"
+      # ── 8. Upload as workflow artifact ────────────────────────────────────────
+      - name: Upload DMG as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: YouTubeURLDownloader-macOS-AppleSilicon
+          path: dist/YouTubeURLDownloader-AppleSilicon.dmg
+          retention-days: 30
+      # ── 9. Attach to GitHub Release ───────────────────────────────────────────
+      - name: Attach DMG to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/YouTubeURLDownloader-AppleSilicon.dmg
