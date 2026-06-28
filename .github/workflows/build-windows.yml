@@ -2,8 +2,11 @@ name: Build Windows EXE
 
 on:
   release:
-    types: [published]        # Auto-runs when you publish a GitHub Release
-  workflow_dispatch:           # Also lets you trigger it manually from the Actions tab
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-windows:
