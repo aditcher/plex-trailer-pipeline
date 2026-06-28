@@ -146,7 +146,7 @@ class _MacBtn(tk.Frame):
         self._lbl = tk.Label(self, text=text, bg=bg,
                              fg=fg if self._enabled else self._fg_off,
                              font=font, cursor=cursor if self._enabled else "arrow",
-                             padx=16, pady=10)
+                             padx=16, pady=8)
         self._lbl.pack(fill="both", expand=True)
         self._lbl.bind("<Button-1>", self._click)
         self.bind("<Button-1>", self._click)
@@ -176,7 +176,7 @@ class TrailerDownloader(tk.Tk):
         super().__init__()
         self.title("YouTube URL Downloader")
         self.resizable(True, True)
-        self.minsize(660, 420)
+        self.minsize(660, 520)
         self.configure(bg=BG)
 
         mono   = tkfont.Font(family=FONT_MONO, size=11)
@@ -201,7 +201,7 @@ class TrailerDownloader(tk.Tk):
         self._check_deps_on_start()
 
         self.update_idletasks()
-        self.geometry("1020x555+200+200")
+        self.geometry("1020x620+200+200")
 
     def _center(self):
         self.update_idletasks()
@@ -285,7 +285,7 @@ class TrailerDownloader(tk.Tk):
         self._log.tag_config("teal",   foreground=FG_TEAL)
 
         bottom = tk.Frame(self, bg=BG)
-        bottom.pack(fill="x", padx=18, pady=16)
+        bottom.pack(fill="x", padx=18, pady=(8,16))
 
         self._dot = tk.Label(bottom, text="●", bg=BG, fg=FG_GRAY,
                              font=tkfont.Font(size=9))
@@ -298,12 +298,12 @@ class TrailerDownloader(tk.Tk):
         self._status_lbl.pack(side="left", padx=(4, 0))
 
         self._result_icon = tk.Label(bottom, text="", bg=BG,
-                                     font=tkfont.Font(size=13))
+                                     font=tkfont.Font(size=11))
         self._result_icon.pack(side="left", padx=(6, 0))
         self._retry_btn = _MacBtn(
             bottom, text="↻  Retry",
             bg="#555555", fg="#ffffff",
-            font=tkfont.Font(family=FONT_SANS, size=13, weight="bold"),
+            font=tkfont.Font(family=FONT_SANS, size=11, weight="bold"),
             cursor="hand2", state="disabled",
             command=self._retry,
         )
@@ -311,7 +311,7 @@ class TrailerDownloader(tk.Tk):
         self._dl_btn = _MacBtn(
             bottom, text="⬇  Download",
             bg="#0a7aff", fg="#ffffff",
-            font=tkfont.Font(family=FONT_SANS, size=13, weight="bold"),
+            font=tkfont.Font(family=FONT_SANS, size=11, weight="bold"),
             cursor="hand2", state="normal",
             command=self._start_download,
         )
