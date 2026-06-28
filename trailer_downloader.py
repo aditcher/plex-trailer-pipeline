@@ -502,7 +502,7 @@ class TrailerDownloader(tk.Tk):
 
             ytdlp_cmd = [
                 YTDLP,
-                "-f", "bv[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b",
+                "-f", "bestvideo+bestaudio/best",
                 "--merge-output-format", "mkv",
                 "--cookies-from-browser", "firefox",
                 "-o", temp_mkv,
