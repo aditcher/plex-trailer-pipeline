@@ -84,7 +84,25 @@ def _find_tool(name):
         exe_name = name + ('.exe' if _IS_WIN else '')
         bundled  = os.path.join(sys._MEIPASS, exe_name)
         if os.path.exists(bundled):
+            if not _IS_WIN:
+                try:
+                    os.chmod(bundled, 0o755)
+                except OSError:
+                    pass
             return bundled
+
+    # 1b. macOS .app bundle — tools placed manually in Contents/Resources
+    #     (kept out of PyInstaller Analysis so its Mach-O processing
+    #     does not truncate yt-dlp own appended PyInstaller archive)
+    if _IS_MAC and getattr(sys, "frozen", False):
+        resources = os.path.join(os.path.dirname(sys.executable), "..", "Resources")
+        candidate = os.path.normpath(os.path.join(resources, name))
+        if os.path.exists(candidate):
+            try:
+                os.chmod(candidate, 0o755)
+            except OSError:
+                pass
+            return candidate
 
     # 2. Check PATH (works on both platforms)
     found = shutil.which(name)
