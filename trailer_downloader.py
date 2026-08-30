@@ -1,11 +1,13 @@
 """
 YouTube URL Downloader
 ------------------
-Paste a YouTube URL, pick a local working folder and a destination folder
-(NAS, second drive, or anywhere), hit Download.
+Paste a YouTube URL, pick a local working folder, choose a format, hit Download.
 
-The app downloads via yt-dlp, re-encodes to H.264/AAC MKV with ffmpeg,
-then moves the finished file to your destination folder automatically.
+Full Video: downloads via yt-dlp, re-encodes to H.264/AAC MKV with ffmpeg
+            (smart-remuxes instead of re-encoding if the source is already H.264).
+Audio-only: downloads via yt-dlp's built-in audio extraction (-x). MP3 and FLAC
+            transcode; M4A and Opus match YouTube's native audio codec, so those
+            two are an instant stream copy with zero quality loss.
 
 Requires: Python 3.8+, yt-dlp, ffmpeg  (auto-detected on launch)
 """
@@ -74,6 +76,16 @@ FG_TEAL     = "#38b6a8"
 FG_DEST     = "#3d6b50"
 
 BLUE_BTN    = "#0a7aff"
+
+# ── Audio format definitions ────────────────────────────────────────────────────
+# label shown in UI -> yt-dlp --audio-format value (None means "Full Video" mode)
+AUDIO_FORMATS = [
+    ("Full Video", None),
+    ("MP3",        "mp3"),
+    ("AAC (M4A)",  "m4a"),
+    ("FLAC",       "flac"),
+    ("Opus",       "opus"),
+]
 
 # ── Dependency check ───────────────────────────────────────────────────────────
 def _find_tool(name):
@@ -194,7 +206,7 @@ class TrailerDownloader(tk.Tk):
         super().__init__()
         self.title("YouTube URL Downloader")
         self.resizable(True, False)
-        self.minsize(660, 480)
+        self.minsize(660, 562)
         self.configure(bg=BG)
 
         mono   = tkfont.Font(family=FONT_MONO, size=11)
@@ -212,6 +224,7 @@ class TrailerDownloader(tk.Tk):
         settings         = load_settings()
         self._url_var    = tk.StringVar(value=settings.get("last_url", ""))
         self._local_var  = tk.StringVar(value=settings.get("local_folder", str(Path.home() / "Movies" / "Trailers")))
+        self._format_var = tk.StringVar(value=settings.get("format", "Full Video"))
         self._status_var = tk.StringVar(value="Ready")
         self._running    = False
 
@@ -219,7 +232,7 @@ class TrailerDownloader(tk.Tk):
         self._check_deps_on_start()
 
         self.update_idletasks()
-        self.geometry("1020x535+200+200")
+        self.geometry("1020x622+200+200")
 
     def _center(self):
         self.update_idletasks()
@@ -266,11 +279,16 @@ class TrailerDownloader(tk.Tk):
 
         self._divider(pady=10)
 
-        self._sublabel("💻  Local working folder", pady_top=0)
+        self._section_label("Format", pady_top=0)
+        self._build_format_selector()
+
+        self._divider(pady=10)
+
+        self._sublabel("💻  Local working folder", pady_top=15)
         self._folder_row(self._local_var, is_dest=False)
 
         arrow = tk.Label(self, text="↓", bg=BG, fg="#555555", font=tkfont.Font(size=14))
-        arrow.pack(pady=(6, 2))
+        arrow.pack(pady=(0, 0))
 
 
         self._divider(pady=10)
@@ -290,7 +308,7 @@ class TrailerDownloader(tk.Tk):
             wrap="none",
             cursor="arrow",
             padx=10, pady=8,
-            height=12,
+            height=9,
         )
         self._log.pack(fill="both", expand=False)
 
@@ -334,6 +352,41 @@ class TrailerDownloader(tk.Tk):
             command=self._start_download,
         )
         self._dl_btn.pack(side="right")
+
+    def _build_format_selector(self):
+        """5-way radio row: Full Video / MP3 / AAC (M4A) / FLAC / Opus.
+        No bitrate/quality control is exposed — quality is hardcoded to each
+        format's ceiling (see --audio-quality 0 in the worker)."""
+        row = tk.Frame(self, bg=BG)
+        row.pack(fill="x", padx=18, pady=(4, 0))
+
+        self._format_btns = {}
+
+        def _select(label):
+            self._format_var.set(label)
+            self._persist()
+            self._refresh_format_buttons()
+
+        for label, _fmt in AUDIO_FORMATS:
+            btn = _MacBtn(
+                row, text=label,
+                bg=BG_BTN, fg=FG_GRAY,
+                font=tkfont.Font(family=FONT_SANS, size=10, weight="bold"),
+                cursor="hand2", state="normal",
+                command=lambda l=label: _select(l),
+            )
+            btn.pack(side="left", padx=(0, 6), ipady=2)
+            self._format_btns[label] = btn
+
+        self._refresh_format_buttons()
+
+    def _refresh_format_buttons(self):
+        current = self._format_var.get()
+        for label, btn in self._format_btns.items():
+            if label == current:
+                btn.config(bg=BLUE_BTN, fg="#ffffff")
+            else:
+                btn.config(bg=BG_BTN, fg=FG_GRAY)
 
     def _section_label(self, text, pady_top=8):
         lbl = tk.Label(self, text=text.upper(),
@@ -449,6 +502,7 @@ class TrailerDownloader(tk.Tk):
         save_settings({
             "last_url":      self._url_var.get(),
             "local_folder":  self._local_var.get(),
+            "format":        self._format_var.get(),
         })
 
     def _retry(self):
@@ -491,14 +545,18 @@ class TrailerDownloader(tk.Tk):
         self._log_clear()
         self._set_status("Downloading…", FG_BLUE, FG_BLUE, "")
 
+        # Resolve the selected format label to its yt-dlp --audio-format value
+        # (None = Full Video mode, unchanged behavior)
+        audio_fmt = dict(AUDIO_FORMATS).get(self._format_var.get())
+
         thread = threading.Thread(
             target=self._download_worker,
-            args=(url, local_dir),
+            args=(url, local_dir, audio_fmt),
             daemon=True
         )
         thread.start()
 
-    def _download_worker(self, url, local_dir):
+    def _download_worker(self, url, local_dir, audio_fmt=None):
         try:
             import os as _os
             _env = _os.environ.copy()
@@ -512,133 +570,202 @@ class TrailerDownloader(tk.Tk):
             self._log_ui(f"$ ytdl \"{url[:60]}…\"", "dim")
             self._log_ui("[yt-dlp]  Fetching metadata…", "gray")
 
-            import datetime
-            temp_mkv = os.path.join(
-                local_dir,
-                f"_temp_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mkv"
-            )
-
-            ytdlp_cmd = [
-                YTDLP,
-                "-f", "bestvideo+bestaudio/best",
-                "--merge-output-format", "mkv",
-                "--cookies-from-browser", "firefox",
-                "-o", temp_mkv,
-                "--no-playlist",
-                url,
-            ]
-
-            self._log_ui("[yt-dlp]  Downloading…", "blue")
-            result = subprocess.run(
-                ytdlp_cmd, capture_output=True, text=True, env=_env,
-                **_SUBPROCESS_FLAGS
-            )
-
-            if result.returncode != 0 and "firefox" in result.stderr.lower():
-                ytdlp_cmd_clean = [c for c in ytdlp_cmd
-                                   if c not in ("--cookies-from-browser", "firefox")]
-                result = subprocess.run(
-                    ytdlp_cmd_clean, capture_output=True, text=True, env=_env,
-                    **_SUBPROCESS_FLAGS
-                )
-
-            if result.returncode != 0:
-                for line in result.stderr.strip().splitlines()[-4:]:
-                    self._log_ui(f"[error]   {line}", "red")
-                self._log_ui("─" * 56, "dim")
-                self._log_ui("[hint]    Check your internet connection, then click Retry", "yellow")
-                self._log_ui("[hint]    — or try a different URL.", "yellow")
-                self._finish(success=False)
-                return
-
-            if not os.path.exists(temp_mkv):
-                candidates = sorted(
-                    Path(local_dir).glob("*.mkv"),
-                    key=lambda p: p.stat().st_mtime, reverse=True
-                )
-                if not candidates:
-                    self._log_ui("[error]   Downloaded file not found.", "red")
-                    self._finish(success=False)
-                    return
-                temp_mkv = str(candidates[0])
-
-            probe_title = subprocess.run(
-                [YTDLP, "--get-title", "--no-playlist", url],
-                capture_output=True, text=True, env=_env,
-                **_SUBPROCESS_FLAGS
-            )
-            filename = probe_title.stdout.strip() or Path(temp_mkv).stem
-            out_mkv  = os.path.join(local_dir, f"{filename}.mkv")
-
-            self._log_ui(f"[yt-dlp]  Downloaded: {Path(temp_mkv).name}", "blue")
-
-            # ── Smart codec check ─────────────────────────────────────
-            probe = subprocess.run(
-                [FFPROBE, "-v", "error",
-                 "-select_streams", "v:0",
-                 "-show_entries", "stream=codec_name",
-                 "-of", "default=noprint_wrappers=1:nokey=1",
-                 temp_mkv],
-                capture_output=True, text=True,
-                **_SUBPROCESS_FLAGS
-            )
-            codec    = probe.stdout.strip().lower()
-            is_h264  = (codec == "h264")
-            enc_mkv  = os.path.join(local_dir, f"{filename}_enc.mkv")
-
-            if is_h264:
-                self._log_ui("[ffprobe] Codec: H.264 ✓ — remuxing (fast, no re-encode)", "green")
-                self._ui_status("Remuxing…", FG_GREEN, FG_GREEN)
-                ffmpeg_cmd = [
-                    FFMPEG, "-y",
-                    "-i", temp_mkv,
-                    "-c", "copy",
-                    "-movflags", "+faststart",
-                    enc_mkv,
-                ]
+            if audio_fmt:
+                self._download_audio(url, local_dir, audio_fmt, _env)
             else:
-                self._log_ui(f"[ffprobe] Codec: {codec.upper()} — re-encoding to H.264…", "yellow")
-                self._log_ui("[ffmpeg]  Re-encoding → libx264 / AAC / yuv420p…", "yellow")
-                self._ui_status("Re-encoding…", FG_YELLOW, FG_YELLOW)
-                ffmpeg_cmd = [
-                    FFMPEG, "-y",
-                    "-i", temp_mkv,
-                    "-c:v", "libx264",
-                    "-preset", "fast",
-                    "-crf", "18",
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-movflags", "+faststart",
-                    enc_mkv,
-                ]
-
-            ff = subprocess.run(
-                ffmpeg_cmd, capture_output=True, text=True,
-                **_SUBPROCESS_FLAGS
-            )
-
-            if ff.returncode != 0:
-                for line in ff.stderr.strip().splitlines()[-4:]:
-                    self._log_ui(f"[error]   {line}", "red")
-                self._finish(success=False)
-                return
-
-            try:
-                os.remove(temp_mkv)
-            except Exception:
-                pass
-            os.replace(enc_mkv, out_mkv)
-
-            self._log_ui(f"[done]    {Path(out_mkv).name}  ✓", "green")
-            self._log_ui("─" * 56, "dim")
-            self._log_ui(f"[ready]   Saved to: {out_mkv}  ✓", "green")
-
-            self._finish(success=True)
+                self._download_video(url, local_dir, _env)
 
         except Exception as e:
             self._log_ui(f"[error]   Unexpected error: {e}", "red")
             self._finish(success=False)
+
+    def _download_audio(self, url, local_dir, audio_fmt, _env):
+        """Audio-only path: yt-dlp's -x extraction handles everything, including
+        the ffmpeg call under the hood. No separate re-encode step needed.
+
+        M4A and Opus match YouTube's native audio codec, so yt-dlp/ffmpeg skip
+        re-encoding entirely and just copy the stream (instant, lossless).
+        MP3 and FLAC don't match, so those two genuinely transcode."""
+        import datetime
+        out_template = os.path.join(local_dir, "%(title)s.%(ext)s")
+
+        ytdlp_cmd = [
+            YTDLP,
+            "-x",
+            "--audio-format", audio_fmt,
+            "--audio-quality", "0",
+            "--cookies-from-browser", "firefox",
+            "-o", out_template,
+            "--no-playlist",
+            url,
+        ]
+
+        self._log_ui(f"[yt-dlp]  Extracting audio ({audio_fmt.upper()})…", "blue")
+        result = subprocess.run(
+            ytdlp_cmd, capture_output=True, text=True, env=_env,
+            **_SUBPROCESS_FLAGS
+        )
+
+        if result.returncode != 0 and "firefox" in result.stderr.lower():
+            ytdlp_cmd_clean = [c for c in ytdlp_cmd
+                               if c not in ("--cookies-from-browser", "firefox")]
+            result = subprocess.run(
+                ytdlp_cmd_clean, capture_output=True, text=True, env=_env,
+                **_SUBPROCESS_FLAGS
+            )
+
+        if result.returncode != 0:
+            for line in result.stderr.strip().splitlines()[-4:]:
+                self._log_ui(f"[error]   {line}", "red")
+            self._log_ui("─" * 56, "dim")
+            self._log_ui("[hint]    Check your internet connection, then click Retry", "yellow")
+            self._log_ui("[hint]    — or try a different URL.", "yellow")
+            self._finish(success=False)
+            return
+
+        # Find the produced file (yt-dlp names it from the video title)
+        candidates = sorted(
+            Path(local_dir).glob(f"*.{audio_fmt}"),
+            key=lambda p: p.stat().st_mtime, reverse=True
+        )
+        if not candidates:
+            self._log_ui(f"[error]   Downloaded .{audio_fmt} file not found.", "red")
+            self._finish(success=False)
+            return
+
+        out_file = candidates[0]
+        self._log_ui(f"[done]    {out_file.name}  ✓", "green")
+        self._log_ui("─" * 56, "dim")
+        self._log_ui(f"[ready]   Saved to: {out_file}  ✓", "green")
+        self._finish(success=True)
+
+    def _download_video(self, url, local_dir, _env):
+        """Full Video path — unchanged from the original: download best
+        video+audio, merge to MKV, then smart-remux (if already H.264) or
+        re-encode to H.264/AAC (if not)."""
+        import datetime
+        temp_mkv = os.path.join(
+            local_dir,
+            f"_temp_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mkv"
+        )
+
+        ytdlp_cmd = [
+            YTDLP,
+            "-f", "bestvideo+bestaudio/best",
+            "--merge-output-format", "mkv",
+            "--cookies-from-browser", "firefox",
+            "-o", temp_mkv,
+            "--no-playlist",
+            url,
+        ]
+
+        self._log_ui("[yt-dlp]  Downloading…", "blue")
+        result = subprocess.run(
+            ytdlp_cmd, capture_output=True, text=True, env=_env,
+            **_SUBPROCESS_FLAGS
+        )
+
+        if result.returncode != 0 and "firefox" in result.stderr.lower():
+            ytdlp_cmd_clean = [c for c in ytdlp_cmd
+                               if c not in ("--cookies-from-browser", "firefox")]
+            result = subprocess.run(
+                ytdlp_cmd_clean, capture_output=True, text=True, env=_env,
+                **_SUBPROCESS_FLAGS
+            )
+
+        if result.returncode != 0:
+            for line in result.stderr.strip().splitlines()[-4:]:
+                self._log_ui(f"[error]   {line}", "red")
+            self._log_ui("─" * 56, "dim")
+            self._log_ui("[hint]    Check your internet connection, then click Retry", "yellow")
+            self._log_ui("[hint]    — or try a different URL.", "yellow")
+            self._finish(success=False)
+            return
+
+        if not os.path.exists(temp_mkv):
+            candidates = sorted(
+                Path(local_dir).glob("*.mkv"),
+                key=lambda p: p.stat().st_mtime, reverse=True
+            )
+            if not candidates:
+                self._log_ui("[error]   Downloaded file not found.", "red")
+                self._finish(success=False)
+                return
+            temp_mkv = str(candidates[0])
+
+        probe_title = subprocess.run(
+            [YTDLP, "--get-title", "--no-playlist", url],
+            capture_output=True, text=True, env=_env,
+            **_SUBPROCESS_FLAGS
+        )
+        filename = probe_title.stdout.strip() or Path(temp_mkv).stem
+        out_mkv  = os.path.join(local_dir, f"{filename}.mkv")
+
+        self._log_ui(f"[yt-dlp]  Downloaded: {Path(temp_mkv).name}", "blue")
+
+        # ── Smart codec check ─────────────────────────────────────
+        probe = subprocess.run(
+            [FFPROBE, "-v", "error",
+             "-select_streams", "v:0",
+             "-show_entries", "stream=codec_name",
+             "-of", "default=noprint_wrappers=1:nokey=1",
+             temp_mkv],
+            capture_output=True, text=True,
+            **_SUBPROCESS_FLAGS
+        )
+        codec    = probe.stdout.strip().lower()
+        is_h264  = (codec == "h264")
+        enc_mkv  = os.path.join(local_dir, f"{filename}_enc.mkv")
+
+        if is_h264:
+            self._log_ui("[ffprobe] Codec: H.264 ✓ — remuxing (fast, no re-encode)", "green")
+            self._ui_status("Remuxing…", FG_GREEN, FG_GREEN)
+            ffmpeg_cmd = [
+                FFMPEG, "-y",
+                "-i", temp_mkv,
+                "-c", "copy",
+                "-movflags", "+faststart",
+                enc_mkv,
+            ]
+        else:
+            self._log_ui(f"[ffprobe] Codec: {codec.upper()} — re-encoding to H.264…", "yellow")
+            self._log_ui("[ffmpeg]  Re-encoding → libx264 / AAC / yuv420p…", "yellow")
+            self._ui_status("Re-encoding…", FG_YELLOW, FG_YELLOW)
+            ffmpeg_cmd = [
+                FFMPEG, "-y",
+                "-i", temp_mkv,
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "18",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-movflags", "+faststart",
+                enc_mkv,
+            ]
+
+        ff = subprocess.run(
+            ffmpeg_cmd, capture_output=True, text=True,
+            **_SUBPROCESS_FLAGS
+        )
+
+        if ff.returncode != 0:
+            for line in ff.stderr.strip().splitlines()[-4:]:
+                self._log_ui(f"[error]   {line}", "red")
+            self._finish(success=False)
+            return
+
+        try:
+            os.remove(temp_mkv)
+        except Exception:
+            pass
+        os.replace(enc_mkv, out_mkv)
+
+        self._log_ui(f"[done]    {Path(out_mkv).name}  ✓", "green")
+        self._log_ui("─" * 56, "dim")
+        self._log_ui(f"[ready]   Saved to: {out_mkv}  ✓", "green")
+
+        self._finish(success=True)
 
     def _log_ui(self, text, tag="gray"):
         self.after(0, lambda: self._log_write(text, tag))
