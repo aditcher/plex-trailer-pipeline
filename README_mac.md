@@ -1,93 +1,79 @@
-# Plex Trailer Pipeline
+# Plex Trailer Pipeline — macOS
 
-A simple shell-based workflow for macOS that downloads YouTube videos and trailers and converts them to a format that Plex can play directly — no buffering, no stuttering.
+A desktop app for macOS that downloads YouTube videos and trailers and converts them to a format Plex can play directly — no buffering, no stuttering. It can also extract just the audio from a video, in your choice of format.
 
 ## The Problem
 
-YouTube serves video using the **VP9** (or AV1) codec. While great for web streaming, VP9 is not natively supported for Direct Play by many Plex clients — including Samsung smart TVs. When Plex encounters a VP9 file, it falls back to **transcoding** on the fly. On low-power NAS hardware like the Synology DS423+ (Intel Celeron J4125), real-time 4K transcoding is simply too much, resulting in constant stuttering and buffering even on a gigabit local network.
+YouTube serves video using the VP9 (or AV1) codec. While great for web streaming, VP9 is not natively supported for Direct Play by many Plex clients — including Samsung smart TVs. When Plex encounters a VP9 file, it falls back to transcoding on the fly. On low-power NAS hardware like the Synology DS423+ (Intel Celeron J4125), real-time 4K transcoding is simply too much, resulting in constant stuttering and buffering even on a gigabit local network.
 
 ## The Solution
 
-Download the video from YouTube using **yt-dlp**, then immediately re-encode the video track from VP9 to **H.264** using **ffmpeg**, keeping the file in an **MKV container**. Plex can Direct Play H.264/MKV natively on virtually every client device, including Samsung TVs, with zero transcoding overhead.
+The app downloads the video from YouTube using yt-dlp, checks the video codec with ffprobe, and only re-encodes when it actually needs to:
 
-The `ytdl` shell function handles this automatically in one command. Before running it, find the highest resolution version of the video on YouTube — if a 4K version exists, find it and copy that URL. `ytdl` will always download the best quality stream available at that URL, so starting with the best source gives you the best result.
+- If the source is already H.264, the app just remuxes it into an MKV container (fast, no quality loss).
+- If the source is VP9/AV1 (the YouTube default), the app re-encodes the video track to H.264 with ffmpeg, keeping the file in an MKV container.
 
-## Requirements
+Either way, the result is an H.264/MKV file that Plex can Direct Play natively on virtually every client device, including Samsung TVs, with zero transcoding overhead.
 
-- macOS (zsh)
-- [Homebrew](https://brew.sh)
-- yt-dlp
-- ffmpeg
+## Getting the App
 
-Install dependencies:
+Download the latest .dmg from the Releases page on GitHub (github.com/aditcher/plex-trailer-pipeline/releases) — pick Apple Silicon (M1/M2/M3/M4 Macs) or Intel, matching your machine. Open the DMG and drag YouTubeURLDownloader to your Applications folder.
 
-```bash
-brew install yt-dlp ffmpeg
-```
-
-## Setup
-
-Run the setup script to add the `ytdl` function to your `~/.zprofile`:
-
-```bash
-chmod +x ytdl_setup.sh
-./ytdl_setup.sh
-```
-
-Or manually add the contents of `ytdl_setup.sh` to your `~/.zprofile` and run `source ~/.zprofile`.
+yt-dlp, ffmpeg, and ffprobe are bundled inside the app — no separate install needed.
 
 ## Usage
 
-1. On YouTube, find the video you want — look for the **4K or highest resolution version** available
-2. Copy the URL from your browser
-3. Open **Terminal** and paste the command with your URL in quotes:
+1. Open YouTubeURLDownloader
+2. Paste a YouTube URL into the YouTube URL field
+3. Choose a Format:
 
-```bash
-ytdl "https://www.youtube.com/watch?v=76b5nfuGpG4"
-```
+   - Full Video — H.264/MKV video, ready for Plex. Remuxes if already H.264, otherwise re-encodes.
+   - MP3 — Audio only, .mp3. Transcoded, since MP3 isn't YouTube's native codec.
+   - AAC (M4A) — Audio only, .m4a. Usually a direct stream copy, matching YouTube's native audio, with no quality loss.
+   - FLAC — Audio only, .flac. Transcoded to lossless FLAC.
+   - Opus — Audio only, .opus. Usually a direct stream copy, matching YouTube's native audio, with no quality loss.
 
-The script will download the highest quality stream available and re-encode it to H.264 automatically. Output is saved to `~/Movies` as an MKV file, ready to move to your Plex library.
+   Each audio format always downloads at that format's maximum quality — there's no bitrate to configure.
+
+4. Choose (or confirm) your local working folder — this is where the finished file is saved
+5. Click Download
+
+The output log at the bottom shows live progress, and turns green with a "Saved to:" line when the file is ready. If a download fails, click Retry.
 
 ## Batch Convert Existing Files
 
-If you already have VP9/AV1 MKV trailers in your Plex library that were downloaded before this fix, use the batch converter to re-encode them all at once:
+If you already have VP9/AV1 MKV trailers in your Plex library from before this fix, use the batch converter to re-encode them all at once:
 
-```bash
-chmod +x batch_convert.sh
-./batch_convert.sh /Volumes/Movies
-```
+chmod +x batch_convert_mac.sh
+./batch_convert_mac.sh /Volumes/Movies
 
-This recursively finds all `.mkv` files inside `Trailers/` subfolders on your NAS and re-encodes them to H.264 in place. Original files are deleted after successful conversion.
+This recursively finds all .mkv files inside Trailers/ subfolders on your NAS and re-encodes them to H.264 in place. Original files are deleted after successful conversion.
 
 ## Plex Folder Structure
 
-For Plex to recognize local trailers, place them in a `Trailers/` subfolder next to the movie:
+For Plex to recognize local trailers, place them in a Trailers/ subfolder next to the movie:
 
-```
 /Movies/
   Blade Runner 2049/
     Blade Runner 2049.mkv
     Trailers/
       Blade Runner 2049 - Official Trailer.mkv
-```
 
 For TV shows (requires Plex Pass), place trailers at the show root level:
 
-```
 /TV Shows/
   The Mandalorian/
     Trailers/
       The Mandalorian - Season 1 Trailer.mkv
     Season 01/
       ...
-```
 
 ## Notes
 
-- The `ytdl` function always downloads the **highest resolution stream available** at the URL you provide — 4K, 1440p, 1080p, whatever YouTube offers. For the best result, find the highest quality version of the video on YouTube before copying the URL. If a 4K version exists, use that link. The video track is then re-encoded to H.264 and the audio to AAC at 192k.
-- Encoding is done using `libx264` (software) with CRF 18 for high quality. On a Mac Pro with Apple Silicon or a fast Intel CPU this is quick; on older hardware larger files may take a few minutes.
-- The `ytdl1080` and `ytdl1440` variants download raw MKV without re-encoding, useful when you want the original stream for non-Plex use.
+- Full Video mode always downloads the highest resolution stream available at the URL you provide — 4K, 1440p, 1080p, whatever YouTube offers.
+- Video re-encoding (when needed) uses libx264 (software) with CRF 18 for high quality, audio at AAC 192k. On Apple Silicon or a fast Intel CPU this is quick; on older hardware larger files may take a few minutes.
+- M4A and Opus are YouTube's own native audio codecs, so extracting to either format is typically an instant copy of the original stream — not a re-encode, and no quality loss. MP3 and FLAC don't match YouTube's source codec, so those two genuinely transcode.
 
 ## Author
 
-Aaron Ditcher — [github.com/aditcher](https://github.com/aditcher)
+Aaron Ditcher — github.com/aditcher
