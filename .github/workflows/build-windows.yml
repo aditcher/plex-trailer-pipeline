@@ -96,7 +96,7 @@ jobs:
 
 
   build-macos-intel:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       # ── 1. Checkout ───────────────────────────────────────────────────────────
       - name: Checkout repository
