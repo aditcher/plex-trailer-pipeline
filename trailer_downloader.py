@@ -206,7 +206,7 @@ class TrailerDownloader(tk.Tk):
         super().__init__()
         self.title("YouTube URL Downloader")
         self.resizable(True, False)
-        self.minsize(660, 562)
+        self.minsize(660, 552)
         self.configure(bg=BG)
 
         mono   = tkfont.Font(family=FONT_MONO, size=11)
@@ -232,7 +232,7 @@ class TrailerDownloader(tk.Tk):
         self._check_deps_on_start()
 
         self.update_idletasks()
-        self.geometry("1020x622+200+200")
+        self.geometry("1020x612+200+200")
 
     def _center(self):
         self.update_idletasks()
@@ -321,7 +321,7 @@ class TrailerDownloader(tk.Tk):
         self._log.tag_config("teal",   foreground=FG_TEAL)
 
         bottom = tk.Frame(self, bg=BG)
-        bottom.pack(fill="x", padx=18, pady=(8,24))
+        bottom.pack(fill="x", padx=18, pady=(18,34))
 
         self._dot = tk.Label(bottom, text="●", bg=BG, fg=FG_GRAY,
                              font=tkfont.Font(size=9))
