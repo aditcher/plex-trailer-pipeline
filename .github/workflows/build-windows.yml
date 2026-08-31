@@ -25,7 +25,7 @@ jobs:
 
       # ── 3. PyInstaller ────────────────────────────────────────────────────────
       - name: Install PyInstaller
-        run: pip install pyinstaller
+        run: pip install pyinstaller==6.10.0
 
       # ── 4. Download yt-dlp.exe ────────────────────────────────────────────────
       - name: Download yt-dlp for Windows
@@ -108,7 +108,7 @@ jobs:
           python-version: '3.11'
       # ── 3. PyInstaller ────────────────────────────────────────────────────────
       - name: Install PyInstaller
-        run: pip install pyinstaller
+        run: pip install pyinstaller==6.10.0
       # ── 4. Download yt-dlp ────────────────────────────────────────────────────
       - name: Download yt-dlp for macOS
         run: |
@@ -167,7 +167,7 @@ jobs:
           python-version: '3.11'
       # ── 3. PyInstaller ────────────────────────────────────────────────────────
       - name: Install PyInstaller
-        run: pip install pyinstaller
+        run: pip install pyinstaller==6.10.0
       # ── 4. Download yt-dlp ────────────────────────────────────────────────────
       - name: Download yt-dlp for macOS
         run: |
