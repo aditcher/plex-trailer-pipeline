@@ -114,12 +114,20 @@ jobs:
         run: |
           curl -L "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o yt-dlp
           chmod +x yt-dlp
-      # ── 5. Download ffmpeg + ffprobe ──────────────────────────────────────────
-      - name: Download ffmpeg for macOS
+      # ── 5. Download static ffmpeg + ffprobe for macOS (no Homebrew, no dylibs) ─
+      - name: Download static ffmpeg for macOS
         run: |
-          brew install ffmpeg
-          cp $(which ffmpeg) ffmpeg
-          cp $(which ffprobe) ffprobe
+          curl -L "https://evermeet.cx/ffmpeg/getrelease/zip" -o ffmpeg.zip
+          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip" -o ffprobe.zip
+          unzip -o ffmpeg.zip -d ffmpeg_extracted
+          unzip -o ffprobe.zip -d ffprobe_extracted
+          cp ffmpeg_extracted/ffmpeg ffmpeg
+          cp ffprobe_extracted/ffprobe ffprobe
+          chmod +x ffmpeg ffprobe
+          echo "ffmpeg:  $(ls -la ffmpeg)"
+          echo "ffprobe: $(ls -la ffprobe)"
+          echo "Checking for dynamic dependencies (should show only system libs):"
+          otool -L ffmpeg
       # ── 6. Build .app (yt-dlp/ffmpeg/ffprobe NOT passed to PyInstaller) ───────
       #   These are frozen PyInstaller binaries themselves (yt-dlp) or complex
       #   Mach-O binaries (ffmpeg/ffprobe). Feeding them through --add-binary
