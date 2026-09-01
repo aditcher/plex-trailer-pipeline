@@ -648,7 +648,21 @@ class TrailerDownloader(tk.Tk):
             local_dir,
             f"_temp_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mkv"
         )
+        try:
+            self._download_video_impl(url, local_dir, _env, temp_mkv)
+        finally:
+            # Always clean up the raw temp download, regardless of which
+            # step succeeded or failed (network error, bad URL, ffmpeg
+            # failure, or an unexpected exception). Previously this only
+            # ran on the success path, so any early failure left the raw
+            # AV1/VP9 temp file orphaned in the working folder permanently.
+            if os.path.exists(temp_mkv):
+                try:
+                    os.remove(temp_mkv)
+                except OSError as e:
+                    self._log_ui(f"[warn]    Could not remove temp file: {e}", "yellow")
 
+    def _download_video_impl(self, url, local_dir, _env, temp_mkv):
         ytdlp_cmd = [
             YTDLP,
             "-f", "bestvideo+bestaudio/best",
@@ -755,11 +769,9 @@ class TrailerDownloader(tk.Tk):
             self._finish(success=False)
             return
 
-        try:
-            os.remove(temp_mkv)
-        except Exception:
-            pass
         os.replace(enc_mkv, out_mkv)
+        # temp_mkv cleanup now happens once, in the `finally` block of
+        # _download_video, regardless of how this function exits.
 
         self._log_ui(f"[done]    {Path(out_mkv).name}  ✓", "green")
         self._log_ui("─" * 56, "dim")
