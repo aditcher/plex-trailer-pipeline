@@ -102,10 +102,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       # ── 2. Python ─────────────────────────────────────────────────────────────
-      - name: Set up Python 3.11
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       # ── 3. PyInstaller ────────────────────────────────────────────────────────
       - name: Install PyInstaller
         run: pip install pyinstaller==6.10.0
