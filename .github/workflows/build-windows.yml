@@ -138,7 +138,7 @@ jobs:
           APP_PID=$!
           sleep 8
           kill $APP_PID 2>/dev/null || true
-          echo "----- Captured output -----"
+          echo "----- Captured output (pre-DMG) -----"
           cat launch_output.txt || echo "(no output captured)"
           echo "----------------------------"
       # ── 7. Package into DMG ───────────────────────────────────────────────────
@@ -150,6 +150,20 @@ jobs:
             -srcfolder dmg_contents \
             -ov -format UDZO \
             "dist/YouTubeURLDownloader-Intel.dmg"
+      # ── 7.5. Test EXE after round-tripping through the DMG ─────────────────────
+      - name: Verify executable loads its own archive after DMG round-trip
+        run: |
+          MOUNT_DIR=$(mktemp -d)
+          hdiutil attach "dist/YouTubeURLDownloader-Intel.dmg" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+          cp -r "$MOUNT_DIR/YouTubeURLDownloader.app" ./postdmg_app.app
+          hdiutil detach "$MOUNT_DIR" -quiet
+          "./postdmg_app.app/Contents/MacOS/YouTubeURLDownloader" > launch_output_postdmg.txt 2>&1 &
+          APP_PID=$!
+          sleep 8
+          kill $APP_PID 2>/dev/null || true
+          echo "----- Captured output (post-DMG) -----"
+          cat launch_output_postdmg.txt || echo "(no output captured)"
+          echo "----------------------------"
       # ── 8. Upload as workflow artifact ────────────────────────────────────────
       - name: Upload DMG as workflow artifact
         uses: actions/upload-artifact@v4
