@@ -134,7 +134,7 @@ jobs:
       # ── 6.5. Test EXE loads its own archive on the build machine itself ───────
       - name: Verify executable loads its own archive
         run: |
-          timeout 10 "dist/YouTubeURLDownloader.app/Contents/MacOS/YouTubeURLDownloader" > launch_output.txt 2>&1 &
+          "dist/YouTubeURLDownloader.app/Contents/MacOS/YouTubeURLDownloader" > launch_output.txt 2>&1 &
           APP_PID=$!
           sleep 8
           kill $APP_PID 2>/dev/null || true
