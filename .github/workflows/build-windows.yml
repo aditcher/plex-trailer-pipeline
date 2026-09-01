@@ -134,8 +134,13 @@ jobs:
       # ── 6.5. Test EXE loads its own archive on the build machine itself ───────
       - name: Verify executable loads its own archive
         run: |
-          "dist/YouTubeURLDownloader.app/Contents/MacOS/YouTubeURLDownloader" --help 2>&1 | head -50 || true
-          echo "Exit code was: $?"
+          timeout 10 "dist/YouTubeURLDownloader.app/Contents/MacOS/YouTubeURLDownloader" > launch_output.txt 2>&1 &
+          APP_PID=$!
+          sleep 8
+          kill $APP_PID 2>/dev/null || true
+          echo "----- Captured output -----"
+          cat launch_output.txt || echo "(no output captured)"
+          echo "----------------------------"
       # ── 7. Package into DMG ───────────────────────────────────────────────────
       - name: Create DMG
         run: |
