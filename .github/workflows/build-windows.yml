@@ -25,7 +25,7 @@ jobs:
 
       # ── 3. PyInstaller ────────────────────────────────────────────────────────
       - name: Install PyInstaller
-        run: pip install pyinstaller
+        run: pip install pyinstaller==6.10.0
 
       # ── 4. Download yt-dlp.exe ────────────────────────────────────────────────
       - name: Download yt-dlp for Windows
@@ -102,35 +102,57 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       # ── 2. Python ─────────────────────────────────────────────────────────────
-      - name: Set up Python 3.11
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       # ── 3. PyInstaller ────────────────────────────────────────────────────────
       - name: Install PyInstaller
-        run: pip install pyinstaller
+        run: pip install pyinstaller==6.10.0
       # ── 4. Download yt-dlp ────────────────────────────────────────────────────
       - name: Download yt-dlp for macOS
         run: |
           curl -L "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o yt-dlp
           chmod +x yt-dlp
-      # ── 5. Download ffmpeg + ffprobe ──────────────────────────────────────────
-      - name: Download ffmpeg for macOS
+      # ── 5. Download static ffmpeg + ffprobe for macOS (no Homebrew, no dylibs) ─
+      - name: Download static ffmpeg for macOS
         run: |
-          brew install ffmpeg
-          cp $(which ffmpeg) ffmpeg
-          cp $(which ffprobe) ffprobe
-      # ── 6. Build .app ─────────────────────────────────────────────────────────
+          curl -L "https://evermeet.cx/ffmpeg/getrelease/zip" -o ffmpeg.zip
+          curl -L "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip" -o ffprobe.zip
+          unzip -o ffmpeg.zip -d ffmpeg_extracted
+          unzip -o ffprobe.zip -d ffprobe_extracted
+          cp ffmpeg_extracted/ffmpeg ffmpeg
+          cp ffprobe_extracted/ffprobe ffprobe
+          chmod +x ffmpeg ffprobe
+          echo "ffmpeg:  $(ls -la ffmpeg)"
+          echo "ffprobe: $(ls -la ffprobe)"
+          echo "Checking for dynamic dependencies (should show only system libs):"
+          otool -L ffmpeg
+      # ── 6. Build .app (yt-dlp/ffmpeg/ffprobe NOT passed to PyInstaller) ───────
+      #   These are frozen PyInstaller binaries themselves (yt-dlp) or complex
+      #   Mach-O binaries (ffmpeg/ffprobe). Feeding them through --add-binary
+      #   puts them inside PyInstaller's own Analysis/archive, which can corrupt
+      #   their internal structure. Instead we copy them into Contents/Resources
+      #   after the build, untouched by PyInstaller — see _find_tool() path 1b
+      #   in trailer_downloader.py, which already expects them there.
       - name: Build with PyInstaller
         run: |
           pyinstaller \
             --onefile \
             --windowed \
             --name "YouTubeURLDownloader" \
-            --add-binary "yt-dlp:." \
-            --add-binary "ffmpeg:." \
-            --add-binary "ffprobe:." \
             trailer_downloader.py
+      # ── 6.5. Place tools in Contents/Resources, untouched by PyInstaller ──────
+      - name: Copy yt-dlp, ffmpeg, ffprobe into app bundle Resources
+        run: |
+          RESOURCES="dist/YouTubeURLDownloader.app/Contents/Resources"
+          mkdir -p "$RESOURCES"
+          cp yt-dlp "$RESOURCES/yt-dlp"
+          cp ffmpeg "$RESOURCES/ffmpeg"
+          cp ffprobe "$RESOURCES/ffprobe"
+          chmod +x "$RESOURCES/yt-dlp" "$RESOURCES/ffmpeg" "$RESOURCES/ffprobe"
+          echo "Resources folder contents:"
+          ls -la "$RESOURCES"
       # ── 7. Package into DMG ───────────────────────────────────────────────────
       - name: Create DMG
         run: |
@@ -167,7 +189,7 @@ jobs:
           python-version: '3.11'
       # ── 3. PyInstaller ────────────────────────────────────────────────────────
       - name: Install PyInstaller
-        run: pip install pyinstaller
+        run: pip install pyinstaller==6.10.0
       # ── 4. Download yt-dlp ────────────────────────────────────────────────────
       - name: Download yt-dlp for macOS
         run: |
@@ -179,17 +201,23 @@ jobs:
           brew install ffmpeg
           cp $(which ffmpeg) ffmpeg
           cp $(which ffprobe) ffprobe
-      # ── 6. Build .app ─────────────────────────────────────────────────────────
+      # ── 6. Build .app (yt-dlp/ffmpeg/ffprobe NOT passed to PyInstaller) ───────
       - name: Build with PyInstaller
         run: |
           pyinstaller \
             --onefile \
             --windowed \
             --name "YouTubeURLDownloader" \
-            --add-binary "yt-dlp:." \
-            --add-binary "ffmpeg:." \
-            --add-binary "ffprobe:." \
             trailer_downloader.py
+      # ── 6.5. Place tools in Contents/Resources, untouched by PyInstaller ──────
+      - name: Copy yt-dlp, ffmpeg, ffprobe into app bundle Resources
+        run: |
+          RESOURCES="dist/YouTubeURLDownloader.app/Contents/Resources"
+          mkdir -p "$RESOURCES"
+          cp yt-dlp "$RESOURCES/yt-dlp"
+          cp ffmpeg "$RESOURCES/ffmpeg"
+          cp ffprobe "$RESOURCES/ffprobe"
+          chmod +x "$RESOURCES/yt-dlp" "$RESOURCES/ffmpeg" "$RESOURCES/ffprobe"
       # ── 7. Package into DMG ───────────────────────────────────────────────────
       - name: Create DMG
         run: |
