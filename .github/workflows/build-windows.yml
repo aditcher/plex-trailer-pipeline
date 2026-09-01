@@ -120,27 +120,31 @@ jobs:
           brew install ffmpeg
           cp $(which ffmpeg) ffmpeg
           cp $(which ffprobe) ffprobe
-      # ── 6. Build .app ─────────────────────────────────────────────────────────
+      # ── 6. Build .app (yt-dlp/ffmpeg/ffprobe NOT passed to PyInstaller) ───────
+      #   These are frozen PyInstaller binaries themselves (yt-dlp) or complex
+      #   Mach-O binaries (ffmpeg/ffprobe). Feeding them through --add-binary
+      #   puts them inside PyInstaller's own Analysis/archive, which can corrupt
+      #   their internal structure. Instead we copy them into Contents/Resources
+      #   after the build, untouched by PyInstaller — see _find_tool() path 1b
+      #   in trailer_downloader.py, which already expects them there.
       - name: Build with PyInstaller
         run: |
           pyinstaller \
             --onefile \
             --windowed \
             --name "YouTubeURLDownloader" \
-            --add-binary "yt-dlp:." \
-            --add-binary "ffmpeg:." \
-            --add-binary "ffprobe:." \
             trailer_downloader.py
-      # ── 6.5. Test EXE loads its own archive on the build machine itself ───────
-      - name: Verify executable loads its own archive
+      # ── 6.5. Place tools in Contents/Resources, untouched by PyInstaller ──────
+      - name: Copy yt-dlp, ffmpeg, ffprobe into app bundle Resources
         run: |
-          "dist/YouTubeURLDownloader.app/Contents/MacOS/YouTubeURLDownloader" > launch_output.txt 2>&1 &
-          APP_PID=$!
-          sleep 8
-          kill $APP_PID 2>/dev/null || true
-          echo "----- Captured output (pre-DMG) -----"
-          cat launch_output.txt || echo "(no output captured)"
-          echo "----------------------------"
+          RESOURCES="dist/YouTubeURLDownloader.app/Contents/Resources"
+          mkdir -p "$RESOURCES"
+          cp yt-dlp "$RESOURCES/yt-dlp"
+          cp ffmpeg "$RESOURCES/ffmpeg"
+          cp ffprobe "$RESOURCES/ffprobe"
+          chmod +x "$RESOURCES/yt-dlp" "$RESOURCES/ffmpeg" "$RESOURCES/ffprobe"
+          echo "Resources folder contents:"
+          ls -la "$RESOURCES"
       # ── 7. Package into DMG ───────────────────────────────────────────────────
       - name: Create DMG
         run: |
@@ -150,20 +154,6 @@ jobs:
             -srcfolder dmg_contents \
             -ov -format UDZO \
             "dist/YouTubeURLDownloader-Intel.dmg"
-      # ── 7.5. Test EXE after round-tripping through the DMG ─────────────────────
-      - name: Verify executable loads its own archive after DMG round-trip
-        run: |
-          MOUNT_DIR=$(mktemp -d)
-          hdiutil attach "dist/YouTubeURLDownloader-Intel.dmg" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
-          cp -r "$MOUNT_DIR/YouTubeURLDownloader.app" ./postdmg_app.app
-          hdiutil detach "$MOUNT_DIR" -quiet
-          "./postdmg_app.app/Contents/MacOS/YouTubeURLDownloader" > launch_output_postdmg.txt 2>&1 &
-          APP_PID=$!
-          sleep 8
-          kill $APP_PID 2>/dev/null || true
-          echo "----- Captured output (post-DMG) -----"
-          cat launch_output_postdmg.txt || echo "(no output captured)"
-          echo "----------------------------"
       # ── 8. Upload as workflow artifact ────────────────────────────────────────
       - name: Upload DMG as workflow artifact
         uses: actions/upload-artifact@v4
@@ -203,17 +193,23 @@ jobs:
           brew install ffmpeg
           cp $(which ffmpeg) ffmpeg
           cp $(which ffprobe) ffprobe
-      # ── 6. Build .app ─────────────────────────────────────────────────────────
+      # ── 6. Build .app (yt-dlp/ffmpeg/ffprobe NOT passed to PyInstaller) ───────
       - name: Build with PyInstaller
         run: |
           pyinstaller \
             --onefile \
             --windowed \
             --name "YouTubeURLDownloader" \
-            --add-binary "yt-dlp:." \
-            --add-binary "ffmpeg:." \
-            --add-binary "ffprobe:." \
             trailer_downloader.py
+      # ── 6.5. Place tools in Contents/Resources, untouched by PyInstaller ──────
+      - name: Copy yt-dlp, ffmpeg, ffprobe into app bundle Resources
+        run: |
+          RESOURCES="dist/YouTubeURLDownloader.app/Contents/Resources"
+          mkdir -p "$RESOURCES"
+          cp yt-dlp "$RESOURCES/yt-dlp"
+          cp ffmpeg "$RESOURCES/ffmpeg"
+          cp ffprobe "$RESOURCES/ffprobe"
+          chmod +x "$RESOURCES/yt-dlp" "$RESOURCES/ffmpeg" "$RESOURCES/ffprobe"
       # ── 7. Package into DMG ───────────────────────────────────────────────────
       - name: Create DMG
         run: |
